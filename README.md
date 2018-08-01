@@ -1,3 +1,3 @@
 # Moteino_PoolNode
 
-Moteino platform based pool monitoring and control node 
+Swimming pool monitoring and control node based on the Moteino platform
