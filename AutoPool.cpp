@@ -244,7 +244,7 @@ SPIFlash flash(FLASH_SS, 0xEF30); // Winbond Flash on Moteino (0xEF30)
  /////////////////////////////////////////////////////////////////////////////////////////////////////
  /////////////////////////////////////////////////////////////////////////////////////////////////////
 
- uint32_t	statusIntervalLast		= 0;		// Keeps track of the most recent transmit intervals that was processed.
+ uint32_t	statusLastSentMillis		= 0;		// Keeps track of the most recent transmit intervals that was processed.
  uint16_t	statusIntervalMillis	= 15*1000;	// How often (in milliseconds) should we transmit status.
 
  bool sentStartMessage = false;
@@ -256,7 +256,7 @@ SPIFlash flash(FLASH_SS, 0xEF30); // Winbond Flash on Moteino (0xEF30)
    /*
     * Status is sent only once each interval, based on statusIntervalMillis
     */
-	uint32_t intervalNow = millis() / statusIntervalMillis;
+	uint32_t now = millis();
 
 	/*
 	* The "START" message is only sent once.  Doing so, leaves a lingering metric on the gateway that never gets updated.
@@ -267,7 +267,7 @@ SPIFlash flash(FLASH_SS, 0xEF30); // Winbond Flash on Moteino (0xEF30)
 		statusSent = radio->send(GATEWAYID, "START", 5);
 		sentStartMessage = true;
 
-	} else if ( intervalNow > statusIntervalLast ) { // Only send status is the current interval is greater than the last one
+	} else if ( (now - statusIntervalMillis) > statusLastSentMillis ) { // Only send status is the current interval is greater than the last one
 
 		DEBUG("--== transmitStatus ==--");
 
@@ -319,7 +319,7 @@ SPIFlash flash(FLASH_SS, 0xEF30); // Winbond Flash on Moteino (0xEF30)
 
 		Utility::Blink( 3 );
 
-		statusIntervalLast = intervalNow; // update the last interval to the current so we can avoid retransmission until the next interval
+		statusLastSentMillis = now; // update the last interval to the current so we can avoid retransmission until the next interval
 
 		DEBUGln();
 
@@ -391,6 +391,7 @@ SPIFlash flash(FLASH_SS, 0xEF30); // Winbond Flash on Moteino (0xEF30)
 
 			 }
 
+     		 delay(100);
 			 sendFilterPumpRunState( rd.senderID );
 
 		 }
@@ -429,6 +430,7 @@ SPIFlash flash(FLASH_SS, 0xEF30); // Winbond Flash on Moteino (0xEF30)
 
      		 }
 
+     		 delay(100);
      		 sendCleanerPumpRunState( rd.senderID );
 
      	 }
@@ -455,7 +457,8 @@ SPIFlash flash(FLASH_SS, 0xEF30); // Winbond Flash on Moteino (0xEF30)
 
      		 }
 
-     		sendPoolLampState( rd.senderID );
+    		 delay(100);
+     		 sendPoolLampState( rd.senderID );
 
      	 }
 
