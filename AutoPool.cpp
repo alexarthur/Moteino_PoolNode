@@ -244,7 +244,7 @@ SPIFlash flash(FLASH_SS, 0xEF30); // Winbond Flash on Moteino (0xEF30)
  /////////////////////////////////////////////////////////////////////////////////////////////////////
  /////////////////////////////////////////////////////////////////////////////////////////////////////
 
- uint32_t	statusLastSentMillis		= 0;		// Keeps track of the most recent transmit intervals that was processed.
+ uint32_t	statusLastSentMillis	= 0;	    // Keeps track of the most recent transmit intervals that was processed.
  uint16_t	statusIntervalMillis	= 15*1000;	// How often (in milliseconds) should we transmit status.
 
  bool sentStartMessage = false;
@@ -267,7 +267,7 @@ SPIFlash flash(FLASH_SS, 0xEF30); // Winbond Flash on Moteino (0xEF30)
 		statusSent = radio->send(GATEWAYID, "START", 5);
 		sentStartMessage = true;
 
-	} else if ( (now - statusIntervalMillis) > statusLastSentMillis ) { // Only send status is the current interval is greater than the last one
+	} else if ( (now - statusLastSentMillis) > statusIntervalMillis ) { // Only send status is the current interval is greater than the last one
 
 		DEBUG("--== transmitStatus ==--");
 
