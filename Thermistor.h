@@ -39,7 +39,8 @@ public:
 	 	 	 Thermistor( uint8_t sensor_pin );
 	virtual ~Thermistor();
 
-	double	getCelsius();
+	float	getCelsius();
+	float   getFahrenheit();
 };
 
 #endif /* THERMISTOR_H_ */
