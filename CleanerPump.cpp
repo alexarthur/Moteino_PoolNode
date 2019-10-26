@@ -6,6 +6,7 @@
  */
 
 #include "CleanerPump.h"
+#include "Valve.h"
 #include "Debug.h"
 
 /////////////////////////////////////////////////////////////////////////////
@@ -16,12 +17,13 @@
 ////                                                                     ////
 /////////////////////////////////////////////////////////////////////////////
 
-CleanerPump::CleanerPump( FilterPump *filterPump, FlowSensor *flowSensor, uint8_t relay_pin ) {
+CleanerPump::CleanerPump( FilterPump *filterPump, FlowSensor *flowSensor, Valve *cleanerValve, uint8_t relay_pin ) {
 
 	assert( filterPump != NULL );
 
-	this->filterPump = filterPump;
-	this->flowSensor = flowSensor;
+	this->filterPump   = filterPump;
+	this->flowSensor   = flowSensor;
+	this->cleanerValve = cleanerValve;
 
 	this->relay_pin = relay_pin;
 
@@ -48,34 +50,33 @@ bool CleanerPump::canRun() {
 	 * CleanerPump can only run if...
 	 * 1. Filter pump is running AND there is water flowing through the cleaner pump
 	 */
-	return (  ( filterPump->getRunState() == Running )
-		&&	( flowSensor->getFlow_MLPS() >= CLEANER_PUMP_FLOW_MLPS_MINIMUM ) );
+
+	int  cleanerValveIsOpen  = ( cleanerValve->getValveState() == ValveState::ValveOpen );
+	int  filterPumpIsRunning = ( filterPump->getRunState() == RunState::Running );
+	int canRun = ( filterPumpIsRunning && cleanerValveIsOpen );
+
+	return canRun;
 
  }
 
  RunState CleanerPump::getRunState() {
-
-   return ( digitalRead( relay_pin ) == LOW ? Running : Stopped );
-
+	 return this->state;
  }
 
  RunState CleanerPump::setRunState( RunState desiredState ) {
 
-	 switch ( desiredState ) {
-
-		case Running:
-			digitalWrite( relay_pin, ( canRun() ? LOW : HIGH ) ); // Permit Run ONLY if canRun()
-			break;
-
-		case Stopped:
-		default:
+	 if ( canRun() && desiredState == RunState::Running ) {
+			digitalWrite( relay_pin, LOW );
+			this->state = RunState::Running;
+	 } else {
 			digitalWrite( relay_pin, HIGH );
-			break;
-
+			if ( !canRun() ) {
+				this->state = RunState::Disabled;
+			} else {
+				this->state = RunState::Stopped;
+			}
 	 }
-
-	 return getRunState();
-
+	 return this->state;
  }
 
  RunState CleanerPump::toggleRunState() {

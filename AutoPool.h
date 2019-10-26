@@ -28,7 +28,7 @@
   #define FLASH_SS						8 // and FLASH SS on D8
 #endif
 
-#define NODEID		3
+#define NODEID		6
 #define GATEWAYID	1
 #define NETWORKID	100
 #define ENCRYPTKEY	"sampleEncryptKey" //exactly the same 16 characters/bytes on all nodes!

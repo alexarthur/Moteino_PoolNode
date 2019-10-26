@@ -18,7 +18,7 @@ public:
 	FilterPressure( uint8_t sensor_pin );
 	virtual ~FilterPressure();
 
-	unsigned getPSI();
+	int getPSI();
 };
 
 #endif /* FILTERPRESSURE_H_ */

@@ -23,43 +23,35 @@ Thermistor::Thermistor( uint8_t sensor_pin ) {
 Thermistor::~Thermistor() {
 }
 
+#define THERMISTOR_SAMPLE_COUNT 1<<5 // 32 samples
+
+
 
 float Thermistor::getCelsius() {
 
-	float average, resistance;
-
-	uint16_t samples[THERMISTOR_SAMPLE_COUNT];
+	int sum=0, V_avg=0, resistance=0;
 
 	// take N samples in a row, with a slight delay
 	for (int i=0; i< THERMISTOR_SAMPLE_COUNT; i++) {
-	   samples[i] = analogRead( sensor_pin );
-	   DEBUG("sample ");DEBUG(i);DEBUG(":"); DEBUGln(samples[i]);
-	   delay( THERMISTOR_SAMPLE_INTERVAL_MILLIS / THERMISTOR_SAMPLE_COUNT );
+	   sum += analogRead( sensor_pin );
+	   delay( 10 );
 	}
 
 	// average all the samples out
-	average = 0;
-	for (int i=0; i< THERMISTOR_SAMPLE_COUNT; i++) {
-	  average += samples[i];
-	}
-
-	average /= THERMISTOR_SAMPLE_COUNT;
-	DEBUG("average1:"); DEBUGln((int)average);
+	// Since the sample count is a multiple of 2, we can shift right to divide
+	V_avg = sum >> 5;
+	DEBUG("V_avg: "); DEBUGln(V_avg);
 
 	// convert the value to resistance
-	resistance = (1023 / average) - 1;
+	resistance = (1023 / V_avg) - 1;
 	resistance = THERMISTOR_OHMS_OTHER / resistance;
 	DEBUG("resistance:"); DEBUGln((int)resistance);
-
-	int Vo = average;
 
 	float R1 = 10000;
 	float logR2, R2, Tk, Tc;
 	float c1 = 1.009249522e-03, c2 = 2.378405444e-04, c3 = 2.019202697e-07;
 
-	Vo = analogRead(sensor_pin);
-	DEBUG("Analog pin: "); DEBUGln(Vo);
-	R2 = R1 * (1023.0 / (float)Vo - 1.0);
+	R2 = R1 * (1023.0 / (float)V_avg - 1.0);
 	logR2 = log(R2);
 	Tk = (1.0 / (c1 + c2*logR2 + c3*logR2*logR2*logR2));
 	Tc = Tk - 273.15;

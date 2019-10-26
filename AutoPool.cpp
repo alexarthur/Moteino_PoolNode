@@ -7,6 +7,7 @@
 #include "Thermistor.h"
 #include "FilterPressure.h"
 #include "PoolLamp.h"
+#include "Valve.h"
 
 /*
  * Moteino PIN inventory
@@ -27,8 +28,8 @@
  *
  * PC0: A0 / D14 				- << unused >>
  * PC1: A1 / D15 				- << unused >>
- * PC2: A2 / D16				- << unused >>
- * PC3: A3 / D17 				- << unused >>
+ * PC2: A2 / D16				- FLOW_SWITCH
+ * PC3: A3 / D17 				- CURRENT_SENSE
  * PC4: A4 / D18 / SDA (I2C)	- << unused >>
  * PC5: A5 / D19 / SCL (I2C) 	- << unused >>
  * PC6: A6 (Analog ONLY)		- WATER_TEMP_SENSOR_PIN (thermistor)
@@ -43,7 +44,7 @@
  * PD4: D4   PCINT20			- FILTER_PUMP_RELAY_PIN
  * PD5: D5~  PCINT21			- CLEANER_PUMP_RELAY_PIN
  * PD6: D6~  PCINT22			- POOL_LAMP_RELAY_PIN
- * PD7: D7   PCINT23			-
+ * PD7: D7   PCINT23			- CLEANER_VALVE_RELAY_PIN
  *
  */
 
@@ -61,11 +62,12 @@
 #define FILTER_PRESSURE_SENSOR_PIN		A7	// Filter pressure transducer on analog pin 7 (INPUT)
 
 #define CLEANER_FLOW_SENSOR_PIN			3	// Water flow through cleaner ext. int 1 (INT1) count pulses on digital pin 3 (INPUT)
-#define FILTER_PUMP_RELAY_PIN			4	// FILTER PUMP RELAY on digital pin 5 (OUTPUT|LOW)
-#define CLEANER_PUMP_RELAY_PIN			5	// CLEANER_PUMP_RELAY on digital pin 7 (OUTPUT|LOW)
-#define POOL_LAMP_RELAY_PIN				6	// POOL_LAMP_RELAY on digital pin 17 (A3) - (OUTPUT|LOW)
+#define FILTER_PUMP_RELAY_PIN			4	// FILTER PUMP RELAY on digital pin 4 (OUTPUT|LOW)
+#define CLEANER_PUMP_RELAY_PIN			5	// CLEANER_PUMP_RELAY on digital pin 5 (OUTPUT|LOW)
+#define POOL_LAMP_RELAY_PIN				6	// POOL_LAMP_RELAY on digital pin 6 - (OUTPUT|LOW)
 #define FILTER_PUMP_TOGGLE_PIN			X	// FILTER PUMP TOGGLE on digital pin 4 (INPUT|PULLUP)
 #define CLEANER_PUMP_TOGGLE_PIN			X	// CLEANER_PUMP_TOGGLE on digital pin 6 (INPUT|PULLUP)
+#define CLEANER_VALVE_RELAY_PIN			7	// CLEANER_VALVE_RELAY on digital pin 7 (OUTPUT|LOW)
 
 /*
  * Interrupts
@@ -86,6 +88,7 @@ SPIFlash flash(FLASH_SS, 0xEF30); // Winbond Flash on Moteino (0xEF30)
  FilterPump		*filterPump			= NULL;  // Pool Filter Pump
  FilterPressure	*filterPressure		= NULL;  // Pool Filter Pressure sensor
  Thermistor		*waterTemperature	= NULL;  // Pool Water Temperature sensor
+ Valve			*cleanerValve		= NULL;  // Water supply valve for pool cleaner
  CleanerPump	*cleanerPump		= NULL;  // Pool Cleaner Pump
  FlowSensor		*cleanerFlow		= NULL;  // Pool Cleaner Flow sensor
  PoolLamp		*poolLamp			= NULL;  // Pool Lamp
@@ -131,7 +134,7 @@ SPIFlash flash(FLASH_SS, 0xEF30); // Winbond Flash on Moteino (0xEF30)
 
      // The temperature value sent starts with the original floating point value multiplied by ten and
      // and then cast to an integer to strip the fractional part off (i.e. 22.3*C is sent as 223)
-     sprintf( txBuf, "PTE:%d", (int)(waterTemperature->getCelsius()*10));
+     sprintf( txBuf, "PTE:%d", (int)(waterTemperature->getFahrenheit()*10));
 
      radio->send(GATEWAYID, txBuf, strlen( txBuf ));
 
@@ -150,6 +153,22 @@ SPIFlash flash(FLASH_SS, 0xEF30); // Winbond Flash on Moteino (0xEF30)
      sprintf( txBuf, "PFR:%d", filterPump->getRunState() == RunState::Running ? 1 : 0);
 
      radio->send( destNodeID, txBuf, strlen(txBuf) );
+
+     Utility::Blink(3);
+
+ }
+
+ /////////////////////////////////////////////////////////////////////////////////////////////////////
+ /////////////////////////   C L E A N E R   V A L V E   S T A T U S   ///////////////////////////////
+ /////////////////////////////////////////////////////////////////////////////////////////////////////
+
+ void sendCleanerValveState( uint8_t destNodeID = GATEWAYID ) {
+
+     char txBuf[50];
+
+     sprintf( txBuf, "PV1:%d", (cleanerValve->getValveState() == ValveOpen) ? 1 : 0 );
+
+     radio->send(destNodeID, txBuf, strlen( txBuf ));
 
      Utility::Blink(3);
 
@@ -195,7 +214,7 @@ SPIFlash flash(FLASH_SS, 0xEF30); // Winbond Flash on Moteino (0xEF30)
 
 	RunState curRunState = cleanerPump->getRunState();
 
-	int iRunState = 0;
+	int iRunState = -1;
 
 	/*
 	 * The gateway can be told to indicate that the cleaner is stopped, running or disabled
@@ -207,13 +226,18 @@ SPIFlash flash(FLASH_SS, 0xEF30); // Winbond Flash on Moteino (0xEF30)
 	 *
 	 */
 	switch ( curRunState ) {
-		case Running:
+		case RunState::Stopped:
+			iRunState = 0;
+			break;
+
+		case RunState::Running:
 			iRunState = 1;
 			break;
 
-		case Stopped:
-			iRunState = ( cleanerPump->canRun() ? 0 : 2 );
+		case RunState::Disabled:
+			iRunState = 2;
 			break;
+
      }
 
      sprintf( txBuf, "PCR:%d", iRunState);
@@ -239,6 +263,7 @@ SPIFlash flash(FLASH_SS, 0xEF30); // Winbond Flash on Moteino (0xEF30)
      Utility::Blink(3);
 
  }
+
 
  /////////////////////////////////////////////////////////////////////////////////////////////////////
  /////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -269,14 +294,16 @@ SPIFlash flash(FLASH_SS, 0xEF30); // Winbond Flash on Moteino (0xEF30)
 
 	} else if ( (now - statusLastSentMillis) > statusIntervalMillis ) { // Only send status is the current interval is greater than the last one
 
-		DEBUG("--== transmitStatus ==--");
+		DEBUGln("--== transmitStatus ==--");
 
 		// Report current status
 		char payload[Radio::MAX_PAYLOAD_LEN+1];	// Main payload buffer, the contents of which are always sent to GATEWAYID
 		char secondary[30];						// Buffer used to format metrics that are concatenated to payload only sent filterPump is Running
 		char msg[100];
 
-		int filterRunState		= filterPump->getRunState();
+		int filterRunState		= ((filterPump->getRunState() == RunState::Running) ? 1 : 0 );
+		int cleanerValveState   = ((cleanerValve->getValveState() == ValveState::ValveOpen) ? 1 : 0);
+		int lampState           = ((poolLamp->getLampState() == LampState::On) ? 1 : 0);
 
 		/*
 		 * Cleaner run state, as reported to gateway is...
@@ -285,21 +312,22 @@ SPIFlash flash(FLASH_SS, 0xEF30); // Winbond Flash on Moteino (0xEF30)
 		 * 1 : cleaner RunState is Running
 		 * 2 : actual cleaner RunState is Stopped AND it cannot be started ( canRun() == false )
 		 */
-		int cleanerRunState		= ( cleanerPump->getRunState() == Running ) ? 1 : cleanerPump->canRun() ? 0 : 2;
-
-		int waterTemperatureCx10 = (int)(waterTemperature->getCelsius()*10);
+		int cleanerRunState		= ( cleanerPump->getRunState() == Running ) ? 1  : (cleanerPump->canRun() ? 0 : 2);
 
 		/*
 		 * Always send filterRunState, cleanerRunState and poolLamp state
 		 */
-		sprintf(payload, "PFR:%d PCR:%d PLI:%d", filterRunState, cleanerRunState, poolLamp->getLampState() );
+		sprintf(payload, "PFR:%d PV1:%d PCR:%d PLI:%d", filterRunState, cleanerValveState, cleanerRunState, lampState );
 
 		/*
 		 * Concatenate secondary metrics only when filterPump is Running
 		 */
 		if ( filterRunState == Running ) {
 
-			sprintf( secondary, " PTE:%d PPR:%d PCL:%d PPH:%d PFL:%d", waterTemperatureCx10, filterPressure->getPSI(), 1, 74, cleanerPump->getFlow_MLPS());
+			float Tf = waterTemperature->getFahrenheit();
+			int waterTemperatureFx10 = (int)((Tf > 0) ? Tf*10 : 0);
+
+			sprintf( secondary, " PTE:%d PPR:%d PCL:%d PPH:%d ", waterTemperatureFx10, filterPressure->getPSI(), 1, 74 );
 
 			strncat( payload, secondary, sizeof(payload) - strlen(payload) );
 
@@ -374,7 +402,7 @@ SPIFlash flash(FLASH_SS, 0xEF30); // Winbond Flash on Moteino (0xEF30)
 
 					 cleanerPump->setRunState( Stopped );
 
-		     		 sendCleanerPumpRunState( rd.senderID ); delay(1000); // was 5000
+		     		 sendCleanerPumpRunState( rd.senderID ); //delay(100); // was 5000
 
 				 }
 
@@ -391,12 +419,51 @@ SPIFlash flash(FLASH_SS, 0xEF30); // Winbond Flash on Moteino (0xEF30)
 
 			 }
 
-     		 delay(100);
+     		 //delay(100);
 			 sendFilterPumpRunState( rd.senderID );
 
 		 }
 
-		 //////////////////////////////////////////////////////
+
+		 /////////////////////////////////////////////////
+		 //  C L E A N E R   V A L V E   C O N T R O L  //
+		 /////////////////////////////////////////////////
+
+     	 if ( rd.buf[0]=='P' && rd.buf[1]=='V' && rd.buf[2]=='1' ) { // (PV1:0, PV1:1)
+
+     		 uint8_t desiredState = rd.buf[4];
+
+     		 if ( desiredState == '0' ) {					// Close Cleaner Valve
+
+
+     			 if ( cleanerPump->getRunState() == Running ) { // First stop running cleaner pump
+
+					 DEBUG("   *** Stop Cleaner Pump ***"); DEBUGln();
+
+					 cleanerPump->setRunState( RunState::Stopped );
+
+     			 }
+
+     			 DEBUG("   *** Close Cleaner Valve ***");
+
+     			 cleanerValve->setValveState( ValveState::ValveClosed );
+
+
+     		 } else if ( desiredState == '1' ) {			// Open Cleaner Valve
+
+     			 DEBUG("   *** Open Cleaner Valve ***");
+
+     			 cleanerValve->setValveState( ValveState::ValveOpen );
+
+     		 }
+
+    		 //delay(100);
+     		 sendCleanerValveState( rd.senderID );
+
+     	 }
+
+
+     	 //////////////////////////////////////////////////////
 		 //////  C L E A N E R   P U M P  C O N T R O L   /////
 		 //////////////////////////////////////////////////////
 
@@ -414,7 +481,7 @@ SPIFlash flash(FLASH_SS, 0xEF30); // Winbond Flash on Moteino (0xEF30)
 
      			 if ( (cleanerPump->getRunState() == Stopped) ) {
 
-     				 if ( cleanerPump->canRun() ) {
+     				 if ( cleanerPump->canRun()) {
 
      					 DEBUG("   *** Start Cleaner Pump ***");
 
@@ -424,16 +491,19 @@ SPIFlash flash(FLASH_SS, 0xEF30); // Winbond Flash on Moteino (0xEF30)
 
      					 DEBUG("   !!! Cannot run cleaner pump !!!");
 
+     					 cleanerPump->setRunState( Disabled );
+
 					 }
 
      			 }
 
      		 }
 
-     		 delay(100);
+     		 //delay(100);
      		 sendCleanerPumpRunState( rd.senderID );
 
      	 }
+
 
 		 /////////////////////////////////////////////////
 		 //////  P O O L   L A M P   C O N T R O L   /////
@@ -457,10 +527,11 @@ SPIFlash flash(FLASH_SS, 0xEF30); // Winbond Flash on Moteino (0xEF30)
 
      		 }
 
-    		 delay(100);
+    		 //delay(100);
      		 sendPoolLampState( rd.senderID );
 
      	 }
+
 
      }
 	 DEBUGln();
@@ -482,23 +553,33 @@ void setup()
 
 	if (NULL != (radio = new Radio( RF69_433MHZ, NODEID, NETWORKID, ENCRYPTKEY ))) {
 
-		if ( NULL == poolLamp ) {
-			poolLamp = new PoolLamp( POOL_LAMP_RELAY_PIN );
+		if ( NULL == cleanerValve ) {
+			cleanerValve = new Valve( CLEANER_VALVE_RELAY_PIN );
+			cleanerValve->setValveState(ValveState::ValveClosed);
 		}
 
-		if ( NULL != (filterPump = new FilterPump( FILTER_PUMP_RELAY_PIN ))) {
-
+		if ( NULL == filterPump ) {
+			filterPump = new FilterPump( FILTER_PUMP_RELAY_PIN );
 			filterPump->setRunState( Stopped );
+		}
 
-			if ( NULL != (cleanerFlow = new FlowSensor( CLEANER_FLOW_SENSOR_PIN, INT1 ))) {
+		if ( NULL == cleanerPump ) {
+			cleanerPump	= new CleanerPump( filterPump, cleanerFlow, cleanerValve, CLEANER_PUMP_RELAY_PIN );
+			cleanerPump->setRunState(RunState::Disabled);
+		}
 
-				cleanerPump	= new CleanerPump( filterPump, cleanerFlow, CLEANER_PUMP_RELAY_PIN );
+		if ( NULL == poolLamp ) {
+			poolLamp = new PoolLamp( POOL_LAMP_RELAY_PIN );\
+			poolLamp->setLampState(LampState::Off);
+		}
 
-				cleanerPump->setRunState( Stopped );
+		if ( NULL == waterTemperature ) {
+			waterTemperature = new Thermistor( WATER_TEMP_SENSOR_PIN );
+		}
 
-				waterTemperature = new Thermistor( WATER_TEMP_SENSOR_PIN );
-
-				filterPressure = new FilterPressure( FILTER_PRESSURE_SENSOR_PIN );
+		if ( NULL == filterPressure ) {
+			filterPressure = new FilterPressure( FILTER_PRESSURE_SENSOR_PIN );
+		}
 
 //				/*
 //				 * Register for pin change interrupts on port D, where our toggle switches are
@@ -509,19 +590,12 @@ void setup()
 //				sei(); // SREG   |=  (1<<SREG_I);		// enable interrupts
 //				SREG   &= ~(1<<SREG_I);		// disable interrupts
 
-				if (flash.initialize()) flash.sleep();
+		if (flash.initialize()) flash.sleep();
 
-				Utility::Blink( 100 ); Utility::Blink( 100 ); Utility::Blink( 100 );
+		Utility::Blink( 100 ); Utility::Blink( 100 ); Utility::Blink( 100 );
 
-			} else {
-				// Fail!
-			}
-
-		} else {
-			// FAIL!
-		}
 	} else {
-		// FAIL!
+		DEBUG("*** Failed to initialize radio!!! ***");
 	}
 	DEBUGln();
 }
@@ -531,34 +605,27 @@ void setup()
  */
 void updateCleanerRunState() {
 
-	RunState curRunState = cleanerPump->getRunState();
-	RunState newRunState = curRunState;					// Initially, assume no change in RunState
-
 	/*
 	 * If the cleaner pump is currently running but conditions do not
 	 * support that state, stop the cleaner pump
 	 */
-	if ( ( curRunState == Running ) && !cleanerPump->canRun() ) {
+	if ( cleanerPump->canRun() ) {
 
-		DEBUG("   *** Stop & Disable Cleaner Pump ( cleanerPump->canRun() == false ) ***"); DEBUGln();
-
-		newRunState = Stopped;
-
+		if (cleanerPump->getRunState() == RunState::Disabled) {
+			DEBUG("   *** Enable Cleaner Pump ( cleanerPump->canRun() == true ) ***"); DEBUGln();
+			cleanerPump->setRunState(RunState::Stopped);
+			sendCleanerPumpRunState();
+		}
+	} else {
+		if (cleanerPump->getRunState() == RunState::Running) {
+			DEBUG("   *** Stop & Disable Cleaner Pump ( cleanerPump->canRun() == false ) ***"); DEBUGln();
+			cleanerPump->setRunState(RunState::Stopped);
+			delay(10);
+			cleanerPump->setRunState(RunState::Disabled);
+			delay(10);
+			sendCleanerPumpRunState();
+		}
 	}
-
-	/*
-	 * If the cleaner's RunState needs to change, change it here and notify the gateway
-	 */
-	if ( newRunState != curRunState ) {
-
-		cleanerPump->setRunState( newRunState );
-
-		// delay(100);
-
-		sendCleanerPumpRunState();
-
-	}
-
 }
 
 void handleSerialRequest() {

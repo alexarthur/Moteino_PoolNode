@@ -43,12 +43,13 @@ FilterPressure::~FilterPressure() {
  #define PSI_30_TICKS		(int)((float)PSI_30_MV / ADC_MV * ADC_RANGE)
  #define PSI_RANGE_TICKS	(PSI_30_TICKS - PSI_0_TICKS)
 
- unsigned FilterPressure::getPSI() {
+ int FilterPressure::getPSI() {
 	 int psi = 0;
 	 int ticks;
 
 	 water_pressure_ticks = analogRead( sensor_pin );	// 0-1023
 	 ticks = (water_pressure_ticks - PSI_0_TICKS);						// 0 PSI offset
 	 water_pressure_10mPSI = (int)(((long)ticks * PSI_RANGE + PSI_RANGE_TICKS/2) / PSI_RANGE_TICKS);
-	 return water_pressure_10mPSI / 100;								// PSI from (.01 * PSI).
+	 psi = water_pressure_10mPSI / 100;								// PSI from (.01 * PSI).
+	 return psi;
  }
